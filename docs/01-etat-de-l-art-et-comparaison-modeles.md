@@ -688,5 +688,7 @@ jeu de validation. Cible : **ECE ≤ 0,05** (critère C9 du cadrage).
 
 ---
 
+*Documents liés : [Cadrage du projet](00-cadrage-projet.md) · [État des lieux de l'existant et justification des choix](02-etat-des-lieux-et-justification-des-choix.md)*
+
 *Document de travail — version 1. Les valeurs marquées 🌐 et 🧮 doivent être confirmées par les
 mesures du §11 avant la remise du livrable « choix argumenté du modèle ».*

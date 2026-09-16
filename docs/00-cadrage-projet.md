@@ -204,7 +204,7 @@ Ces contraintes sont **discriminantes** : elles écartent des modèles qui serai
 | **Éclairage hétérogène** (couloirs, néons, veilleuses de nuit) | Chute de performance en basse lumière | Impose une augmentation de données photométrique agressive et un jeu de test nocturne dédié |
 | **Encombrement mobile** (brancards, chariots, perfusions, déambulateurs) | Classes absentes de COCO | Impose un **jeu de données propre** ; écarte tout modèle non ré-entraînable facilement |
 | **Personnes en position non debout** (patient au sol, brancard) | La classe « person » COCO est biaisée vers le piéton debout | Impose une collecte incluant ces cas ; critère de robustesse |
-| **Sécurité des personnes (ISO 3691-4 / EN 1525)** | Un faux négatif sur « personne » est une faute grave ; un faux positif est seulement une gêne | **Le rappel (recall) sur la classe « personne » prime sur la précision** — asymétrie à inscrire dans la fonction de coût et dans le protocole de test |
+| **Sécurité des personnes (ISO 3691-4 / ISO 13482)** | Un faux négatif sur « personne » dégrade fortement le service ; un faux positif est seulement une gêne | **Le rappel (recall) sur la classe « personne » prime sur la précision** — asymétrie à inscrire dans la fonction de coût et dans le protocole de test. ⚠️ **Voir [§4.2 de l'état des lieux](02-etat-des-lieux-et-justification-des-choix.md#42-les-normes-de-sécurité--lenseignement-le-plus-important-du-document)** : ISO 3691-4 exige un niveau PLd pour la détection de personnes, qu'aucun réseau de neurones ne peut atteindre. Dans tous les systèmes en production, la **sécurité** repose sur un scanner laser certifié, et l'IA sur la **compréhension** de la scène. Notre module est un démonstrateur de perception, **pas un organe de sécurité** |
 | **Confidentialité (RGPD, secret médical)** | Interdiction de faire transiter des images de patients | Confirme et *justifie* l'exigence de traitement **100 % local** du cahier des charges ; impose une politique de stockage du jeu de données |
 
 ---
@@ -253,4 +253,4 @@ du cahier des charges en seuils vérifiables.
 
 ---
 
-*Suite : [État de l'art et comparaison des modèles](01-etat-de-l-art-et-comparaison-modeles.md)*
+*Suite : [État de l'art et comparaison des modèles](01-etat-de-l-art-et-comparaison-modeles.md) · [État des lieux de l'existant et justification des choix](02-etat-des-lieux-et-justification-des-choix.md)*
