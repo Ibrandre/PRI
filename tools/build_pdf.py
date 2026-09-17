@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 """
-Génère le rapport PDF du PRI à partir des documents Markdown de docs/.
+Génère les PDF du PRI à partir des documents Markdown de docs/.
 
 Chaîne : Markdown -> HTML (mise en page d'impression A4) -> PDF via Chromium.
 
+Deux profils :
+    rapport   — le dossier complet (couverture, sommaire, les trois parties)
+    synthese  — la note de synthèse, format court sans couverture ni sommaire
+
 Usage :
-    python3 tools/build_pdf.py [-o build/PRI_IA_Perception_Etat_de_l_art.pdf]
+    python3 tools/build_pdf.py                       # les deux profils
+    python3 tools/build_pdf.py --profile synthese
 """
 
 from __future__ import annotations
@@ -44,6 +49,13 @@ FILE_REFS = {
 
 TITLE = "IA embarquée pour la perception des véhicules autonomes en logistique hospitalière"
 SUBTITLE = "État des lieux, état de l'art et choix technologiques"
+
+SYNTHESIS = "03-synthese.md"
+
+PROFILES = {
+    "rapport": "build/PRI_IA_Perception_Rapport.pdf",
+    "synthese": "build/PRI_IA_Perception_Synthese.pdf",
+}
 
 
 def clean_markdown(text: str) -> str:
@@ -101,6 +113,33 @@ def slugify(text: str, seen: set[str]) -> str:
     return slug
 
 
+def build_synthesis_html(today: str) -> str:
+    """Note de synthèse : un seul document, pas de couverture ni de sommaire."""
+    md = markdown.Markdown(extensions=["tables", "fenced_code", "sane_lists", "attr_list"])
+    raw = clean_markdown((DOCS / SYNTHESIS).read_text(encoding="utf-8"))
+    _title, meta, content = split_title(raw)
+    rendered = md.convert(content)
+    rendered = link_sources(rendered)
+
+    return SYNTHESIS_TEMPLATE.format(
+        title=html.escape(TITLE),
+        today=html.escape(today),
+        meta="<br>".join(html.escape(m) for m in meta),
+        body=rendered,
+    )
+
+
+def link_sources(rendered: str) -> str:
+    """Bibliographie : faire apparaître l'URL sous l'intitulé (lecture papier)."""
+    return re.sub(
+        r'<li><a href="(https?://[^"]+)">(.*?)</a></li>',
+        lambda m: f'<li class="src"><a href="{m.group(1)}">{m.group(2)}</a>'
+                  f'<span class="src-url">{m.group(1)}</span></li>',
+        rendered,
+        flags=re.S,
+    )
+
+
 def build_html(today: str) -> str:
     md = markdown.Markdown(extensions=["tables", "fenced_code", "sane_lists", "attr_list"])
     seen: set[str] = set()
@@ -126,15 +165,7 @@ def build_html(today: str) -> str:
 
         rendered = re.sub(r"<h2([^>]*)>(.*?)</h2>", anchor, rendered, flags=re.S)
 
-        # Bibliographie : faire apparaître l'URL sous l'intitulé, le PDF pouvant
-        # être lu sur papier.
-        rendered = re.sub(
-            r'<li><a href="(https?://[^"]+)">(.*?)</a></li>',
-            lambda m: f'<li class="src"><a href="{m.group(1)}">{m.group(2)}</a>'
-                      f'<span class="src-url">{m.group(1)}</span></li>',
-            rendered,
-            flags=re.S,
-        )
+        rendered = link_sources(rendered)
 
         meta_html = ""
         if meta:
@@ -310,6 +341,73 @@ TEMPLATE = """<!DOCTYPE html>
 """
 
 
+SYNTHESIS_TEMPLATE = """<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>{title}</title>
+<style>
+  :root {{ --ink:#16191d; --muted:#5b6470; --rule:#d7dce3; --accent:#1f4e79; --soft:#f4f6f9; }}
+  * {{ box-sizing: border-box; }}
+  html {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+  body {{ font-family:"DejaVu Sans","Noto Sans","Liberation Sans",sans-serif;
+          font-size:9.3pt; line-height:1.45; color:var(--ink); margin:0; }}
+
+  .masthead {{ border-top:3px solid var(--accent); padding-top:4mm; margin-bottom:7mm; }}
+  .kicker {{ font-size:7.8pt; letter-spacing:.15em; text-transform:uppercase;
+             color:var(--accent); font-weight:700; }}
+  .masthead h1 {{ font-size:17pt; line-height:1.22; margin:2.5mm 0 2mm; }}
+  .masthead .meta {{ font-size:8pt; color:var(--muted); }}
+
+  h2 {{ font-size:12pt; margin:7mm 0 2.5mm; padding-bottom:1.3mm;
+        border-bottom:1px solid var(--rule); page-break-after:avoid; }}
+  h3 {{ font-size:10pt; margin:5mm 0 1.8mm; color:var(--accent); page-break-after:avoid; }}
+  p {{ margin:0 0 2.3mm; text-align:justify; }}
+  ul, ol {{ margin:0 0 2.3mm; padding-left:5mm; }}
+  li {{ margin-bottom:1mm; }}
+  a {{ color:var(--accent); text-decoration:none; word-break:break-word; }}
+  hr {{ border:0; border-top:1px solid var(--rule); margin:6mm 0; }}
+  em {{ color:inherit; }}
+
+  table {{ width:100%; border-collapse:collapse; margin:2.5mm 0 4mm;
+           font-size:7.6pt; page-break-inside:avoid; }}
+  th, td {{ border:1px solid var(--rule); padding:1.4mm 1.9mm;
+            text-align:left; vertical-align:top; line-height:1.35; }}
+  th {{ background:var(--soft); font-weight:700; font-size:7.4pt; }}
+  tbody tr:nth-child(even) {{ background:#fbfcfd; }}
+  td p {{ margin:0; text-align:left; }}
+
+  pre {{ background:var(--soft); border:1px solid var(--rule); border-left:3px solid var(--accent);
+         padding:2.8mm 3mm; font-size:6.7pt; line-height:1.3; white-space:pre;
+         overflow:hidden; page-break-inside:avoid; margin:2.5mm 0 4mm; }}
+  pre code, code {{ font-family:"DejaVu Sans Mono","Liberation Mono",monospace; }}
+  code {{ font-size:8.1pt; background:var(--soft); padding:0 .7mm; border-radius:2px; }}
+
+  blockquote {{ margin:2.5mm 0 4mm; padding:2.2mm 3.5mm; background:#fff8e8;
+                border-left:3px solid #d79a2b; page-break-inside:avoid; }}
+  blockquote p {{ margin:0 0 1.5mm; }}
+  blockquote p:last-child {{ margin-bottom:0; }}
+  blockquote h3 {{ margin-top:0; color:#8a5a00; font-size:10.5pt; }}
+
+  li.src {{ margin-bottom:1.5mm; }}
+  li.src .src-url {{ display:block; font-family:"DejaVu Sans Mono",monospace;
+                     font-size:6.4pt; color:var(--muted); word-break:break-all; }}
+
+  li, tr, h2, h3 {{ page-break-inside:avoid; }}
+</style>
+</head>
+<body>
+  <div class="masthead">
+    <div class="kicker">PRI 2026 – 2027 · Projet 2 · Note de synthèse</div>
+    <h1>{title}</h1>
+    <div class="meta">{meta}</div>
+  </div>
+{body}
+</body>
+</html>
+"""
+
+
 async def render(html_path: Path, pdf_path: Path) -> None:
     from playwright.async_api import async_playwright
 
@@ -340,18 +438,26 @@ async def render(html_path: Path, pdf_path: Path) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("-o", "--output", default="build/PRI_IA_Perception_Etat_de_l_art.pdf")
+    ap.add_argument("--profile", choices=[*PROFILES, "tous"], default="tous")
+    ap.add_argument("-o", "--output", help="chemin de sortie (un seul profil)")
     ap.add_argument("--date", default="Septembre 2026")
     args = ap.parse_args()
 
-    out = (ROOT / args.output).resolve()
-    out.parent.mkdir(parents=True, exist_ok=True)
+    wanted = list(PROFILES) if args.profile == "tous" else [args.profile]
+    if args.output and len(wanted) > 1:
+        ap.error("--output demande un profil unique (--profile rapport|synthese)")
 
-    html_path = out.with_suffix(".html")
-    html_path.write_text(build_html(args.date), encoding="utf-8")
+    for profile in wanted:
+        out = (ROOT / (args.output or PROFILES[profile])).resolve()
+        out.parent.mkdir(parents=True, exist_ok=True)
 
-    asyncio.run(render(html_path, out))
-    print(f"PDF : {out}  ({out.stat().st_size / 1024:.0f} Ko)")
+        page = build_html(args.date) if profile == "rapport" else build_synthesis_html(args.date)
+        html_path = out.with_suffix(".html")
+        html_path.write_text(page, encoding="utf-8")
+
+        asyncio.run(render(html_path, out))
+        html_path.unlink()
+        print(f"{profile:9s} -> {out.name}  ({out.stat().st_size / 1024:.0f} Ko)")
 
 
 if __name__ == "__main__":
