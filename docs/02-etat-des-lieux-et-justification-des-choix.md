@@ -202,17 +202,28 @@ rend le travail réutilisable au-delà du PRI.
 | Norme | Portée | Exigence clé |
 |---|---|---|
 | **ISO 3691-4** | Chariots sans conducteur / AMR industriels | **La détection de personnes doit être assurée par un système de niveau de performance PLd (ISO 13849)** : redondance, détection de défaut, surveillance indépendante. Un « test de détection des personnes » est explicitement normalisé |
+| **IEC 61496** | Équipements de protection électro-sensibles (ESPE) | Fixe les paramètres d'essai qu'un dispositif doit passer pour réaliser cette fonction. En pratique, seuls les **Type 3** (scanner laser) et **Type 4** qualifient — d'où le recours systématique aux scanners de sécurité (SICK microScan3 et équivalents, SIL 2 / PLd Cat. 3) |
 | **ISO 13482** | Robots de service et d'assistance à la personne (norme du HOSPI) | Sécurité des robots serviteurs mobiles ; révision en cours |
 
 > ### ⚠️ Conséquence architecturale majeure
 >
-> **Aucun réseau de neurones ne peut être certifié PLd.** Un modèle appris est statistique et non
-> déterministe : il est structurellement incapable de fournir la garantie exigée par ISO 3691-4.
+> **La fonction de sécurité est réservée à un matériel certifié.** ISO 3691-4 exige un niveau PLd
+> pour la détection de personnes, et IEC 61496 réserve en pratique cette fonction aux ESPE de
+> **Type 3 (scanner laser) ou Type 4**. Une caméra associée à un réseau de neurones n'entre pas
+> dans cette catégorie : elle ne discrimine pas de façon déterministe — c'est le même argument
+> qui écarte les capteurs PIR de la certification.
 >
-> C'est pourquoi, dans **tous** les systèmes commerciaux du §1, la sécurité des personnes repose
-> sur un **scanner laser de sécurité certifié**, câblé à l'arrêt d'urgence — et **jamais sur l'IA
-> de perception**. L'IA sert à *comprendre* la scène (anticiper, ralentir en douceur, choisir un
-> itinéraire, décider qu'un couloir est praticable) ; le matériel certifié sert à *garantir l'arrêt*.
+> C'est pourquoi la sécurité des personnes sur un AMR repose sur un **scanner laser de sécurité
+> certifié**, câblé à l'arrêt d'urgence, et non sur l'IA de perception. L'IA sert à *comprendre*
+> la scène (anticiper, ralentir en douceur, choisir un itinéraire, décider qu'un couloir est
+> praticable) ; le matériel certifié sert à *garantir l'arrêt*.
+>
+> **Nuance à ne pas escamoter** : cela ne veut pas dire qu'un modèle appris est à jamais
+> incertifiable. Les normes de sécurité fonctionnelle classiques n'ont pas été conçues pour le
+> logiciel d'apprentissage, et des cadres d'assurance dédiés existent (**AMLAS**, travaux
+> d'adaptation d'ISO 26262). C'est un sujet de recherche actif. L'énoncé exact est donc : *avec
+> les dispositifs et la voie de certification d'aujourd'hui, la fonction d'arrêt revient à un
+> ESPE certifié.*
 >
 > **Ceci nuance une formulation de notre document de cadrage.** Nous y écrivions qu'un faux négatif
 > sur la classe « personne » est une faute grave, en traitant implicitement l'IA comme l'organe de
@@ -258,7 +269,7 @@ Ce que l'état des lieux nous apprend, et qui oriente directement les choix du �
 | # | Enseignement | Source de l'observation |
 |---|---|---|
 | **E1** | **La géométrie d'abord, la sémantique ensuite.** Tous les systèmes en production fondent leur navigation sur la télémétrie (LiDAR + ultrasons) et ajoutent la vision par-dessus, pour ce que la télémétrie ne voit pas | TUG, HOSPI, Relay |
-| **E2** | **La sécurité des personnes ne passe pas par l'IA**, mais par du matériel certifié PLd. L'IA apporte le confort, l'anticipation et la sémantique | ISO 3691-4, ISO 13482 / HOSPI |
+| **E2** | **La sécurité des personnes ne passe pas par l'IA**, mais par un ESPE certifié (IEC 61496 Type 3/4, PLd). L'IA apporte le confort, l'anticipation et la sémantique | ISO 3691-4, IEC 61496, ISO 13482 / HOSPI |
 | **E3** | **Ce qui est connu par le réseau ne doit pas être deviné par un capteur.** L'état de l'ascenseur est obtenu par requête, pas par perception | HOSPI, Relay |
 | **E4** | **L'empilement de modèles est réservé au GPU.** Sur cible contrainte, la pratique validée est la dorsale unique multi-tâches | ORB vs travaux ResNet-18 embarqués |
 | **E5** | **Sur Raspberry Pi, le régime naturel est 6-8 FPS.** Atteindre 10 Hz+ exige une chaîne d'optimisation explicite (quantification, élagage, architectures légères) | Projets RPi académiques ; revues de déploiement embarqué |
@@ -406,7 +417,7 @@ Tout écart avec une pratique établie doit être justifié et surveillé. Voici
 |---|---|---|---|---|---|
 | **Pas de SLAM** | Tous les systèmes en production font du SLAM | Perception locale, sans carte globale | Le sujet porte sur la perception, pas sur la localisation | La sortie « couloir dégagé » manque de contexte global | Interface Nav2 : la carte est fournie par l'aval |
 | **Calcul très en dessous** | Production : x86 embarqué / GPU | Raspberry Pi 5, CPU nu | **C'est la problématique même du sujet** | Budget de latence non tenu | Repli documenté : Hailo-8L, résolution réduite |
-| **Pas de scanner de sécurité certifié** | ISO 3691-4 : PLd obligatoire | Prototype de recherche, non certifiable | Hors périmètre d'un PRI | Sur-interprétation du niveau de sécurité atteint | **À écrire explicitement dans le rapport final** : le système est un démonstrateur de perception, pas un organe de sécurité |
+| **Pas de scanner de sécurité certifié** | ISO 3691-4 + IEC 61496 : ESPE Type 3/4 obligatoire | Prototype de recherche, non certifiable | Hors périmètre d'un PRI | Sur-interprétation du niveau de sécurité atteint | **À écrire explicitement dans le rapport final** : le système est un démonstrateur de perception, pas un organe de sécurité |
 | **LiDAR 2D et non 3D** | Le haut de gamme passe au 3D | 2D | Coût, budget CPU, disponibilité | Aveugle hors du plan de balayage (obstacles en hauteur, surplombs) | Caméra + sonar couvrent partiellement ; à documenter comme limite connue |
 | **Jeu de données propre** | Les industriels disposent d'années de données terrain | Collecte limitée | Contrainte de projet | Faible généralisation à d'autres sites | Pré-annotation par modèle enseignant ; augmentation de données agressive ; limite annoncée |
 
@@ -449,6 +460,10 @@ Tout écart avec une pratique établie doit être justifié et surveillé. Voici
 - [nav2_costmap_2d — vue d'ensemble du paquet ROS](https://index.ros.org/p/nav2_costmap_2d/)
 - [Nav2 — filtrage des obstacles induits par le bruit](https://docs.nav2.org/tutorials/docs/filtering_of_noise-induced_obstacles.html)
 - [ISO 3691-4:2020 — Chariots sans conducteur et leurs systèmes](https://www.iso.org/standard/70660.html)
+- [Safety Laser Scanners for Personnel Presence Detection — IEC 61496 Type 3/4 et PLd](https://industrialmonitordirect.com/blogs/knowledgebase/safety-laser-scanners-for-personnel-presence-detection)
+- [SICK — scanners laser de sécurité pour AGV et AMR](https://www.sick.com/us/en/products/safety/safety-laser-scanners/c/g569359)
+- [Guidance on the Assurance of Machine Learning in Autonomous Systems — AMLAS (arXiv 2102.01564)](https://arxiv.org/pdf/2102.01564)
+- [An Analysis of ISO 26262: Using Machine Learning Safely in Automotive Software (arXiv 1709.02435)](https://arxiv.org/pdf/1709.02435)
 - [Mobile Robot Safety Standards: ISO 3691-4 et ANSI/RIA R15.08](https://blog.saphira.ai/mobile-robot-safety-standards-understanding-iso-3691-4-(driverless-industrial-trucks)-and-r15-08-(industrial-mobile-robots)-implementation)
 - [ISO 3691-4 : le cadre de responsabilité pour les AGV](https://www.agvnetwork.com/automated-guided-vehicles-technology/standard-3691-4)
 - [The Latest in Autonomous Mobile Robots: New Safety Standards (A3 / Automate)](https://www.automate.org/robotics/industry-insights/autonomous-mobile-robot-safety-updates-new-features)
