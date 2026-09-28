@@ -18,7 +18,7 @@ exécutable localement sur **Raspberry Pi 5**.
 | [`docs/00-cadrage-projet.md`](docs/00-cadrage-projet.md) | Synthèse du cahier des charges, analyse des besoins et contraintes, décomposition fonctionnelle, budget temps réel | *Analyser les besoins et les contraintes* |
 | [`docs/01-etat-de-l-art-et-comparaison-modeles.md`](docs/01-etat-de-l-art-et-comparaison-modeles.md) | État de l'art par brique fonctionnelle, tableaux comparatifs COCO et Raspberry Pi 5, grille multicritère pondérée, recommandation argumentée | *État de l'art et comparaison des modèles* + *Choix argumenté du modèle* |
 | [`docs/02-etat-des-lieux-et-justification-des-choix.md`](docs/02-etat-des-lieux-et-justification-des-choix.md) | État des lieux des projets existants (industriels, recherche, prototypes bas coût), technologies employées, enseignements transversaux, entonnoir de décision et traçabilité des choix | *État de l'art* + *Choix argumenté du modèle* |
-| [`docs/03-synthese.md`](docs/03-synthese.md) | Note de synthèse : l'essentiel des trois documents en 6 pages, pour présentation à l'encadrant | — |
+| [`docs/03-synthese.md`](docs/03-synthese.md) | Note de synthèse (v2) : l'essentiel en 6 pages, pour présentation à l'encadrant. **Modèle retenu : YOLOv8n** (décision prise avec les encadrants) | — |
 
 ## PDF
 

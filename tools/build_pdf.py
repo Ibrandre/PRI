@@ -78,9 +78,10 @@ def clean_markdown(text: str) -> str:
 
     text = re.sub(r"\[([^\]]+)\]\((\d\d-[^)]+\.md[^)]*)\)", deref, text)
 
-    # Une rubrique en gras suivie immédiatement d'une liste (bibliographies) :
-    # sans ligne vide, le convertisseur aplatit la liste en paragraphe.
-    text = re.sub(r"^(\*\*[^*\n]+\*\*)\n(?=- )", r"\1\n\n", text, flags=re.M)
+    # Une liste qui suit immédiatement une ligne de texte : sans ligne vide, le
+    # convertisseur l'aplatit dans le paragraphe précédent. On exclut les lignes
+    # de liste, de continuation (indentées), de tableau et de citation.
+    text = re.sub(r"^(?![ \t]|- |\||>|\d+\. )(.+)\n(?=- )", r"\1\n\n", text, flags=re.M)
     return text
 
 
@@ -370,7 +371,8 @@ SYNTHESIS_TEMPLATE = """<!DOCTYPE html>
   em {{ color:inherit; }}
 
   table {{ width:100%; border-collapse:collapse; margin:2.5mm 0 4mm;
-           font-size:7.6pt; page-break-inside:avoid; }}
+           font-size:7.6pt; page-break-inside:auto; }}
+  thead {{ display:table-header-group; }}
   th, td {{ border:1px solid var(--rule); padding:1.4mm 1.9mm;
             text-align:left; vertical-align:top; line-height:1.35; }}
   th {{ background:var(--soft); font-weight:700; font-size:7.4pt; }}

@@ -1,92 +1,120 @@
 # Note de synthèse
 
 *PRI 2026-2027 · Projet 2 · Encadrement : Moïse DJOKO-KOUAM*
-*Note de synthèse — version 1, septembre 2026*
+*Note de synthèse — version 2, septembre 2026*
 
 État des lieux de l'existant, comparaison des modèles et choix technologiques.
-Le détail complet figure dans le rapport associé (39 p.).
 
 ---
 
 ## 1. Le problème, reformulé
 
 **Problématique du sujet :** concevoir une IA de perception *performante, frugale et apte au
-déploiement embarqué*, qui transforme des informations de perception hétérogènes en une
-représentation structurée de l'environnement du véhicule autonome (VA).
+déploiement embarqué*, qui transforme les informations des capteurs du véhicule autonome (VA)
+en une représentation structurée de son environnement.
 
-**Le point structurant :** le module de perception n'est pas le produit final — son client est
-une **IA de décision**, hors périmètre. Le livrable réel est donc un **contrat d'interface** :
-un flux de données structurées, horodatées et **assorties d'un niveau de confiance**.
+**Le point structurant :** le module de perception n'est pas une fin en soi. Ses résultats sont
+destinés à une **IA de décision**, hors du périmètre du projet. Ce que nous devons livrer, c'est
+donc un flux d'informations claires, datées et **accompagnées d'un niveau de confiance**, que
+cette IA de décision pourra exploiter directement.
 
-| Sortie attendue | Nature | Produite par |
-|---|---|---|
-| a — Obstacle détecté / position / distance | Géométrique + classe | Détection + fusion LiDAR |
-| b — Personne présente | Classe + comptage | Détection |
-| c — Couloir dégagé ou obstrué | État | Occupation LiDAR + suivi |
-| d — Ascenseur disponible | État composite | Détection + logique (voir §4, E3) |
-| e — Trajectoire libre ou bloquée | État | Suivi + projection des vitesses |
-| **f — Niveau de confiance** | Scalaire [0,1] | **Calibration (§6)** |
+| Information attendue | Produite par |
+|---|---|
+| a — Obstacle détecté, position et distance | Caméra (détection) + LiDAR (distance) |
+| b — Personne présente | Caméra (détection) |
+| c — Couloir dégagé ou obstrué | LiDAR + suivi des objets |
+| d — Ascenseur disponible | À préciser (voir §4 et §8) |
+| e — Trajectoire libre ou bloquée | Suivi des objets et de leur vitesse |
+| **f — Niveau de confiance** | **Recalage des scores du modèle (§6)** |
 
-La sortie **f** est la plus exigeante : le score brut d'un détecteur n'est pas une probabilité.
-Les réseaux modernes sont sur-confiants — un lot de détections à 0,9 est empiriquement juste à
-environ 70 %. La livrer telle quelle à l'IA de décision serait une faute.
+Le niveau de confiance (f) demande une attention particulière : les modèles de détection ont
+tendance à être **trop sûrs d'eux**. Un score affiché de 90 % correspond souvent, en réalité, à
+environ 70 % de bonnes réponses. Il faut donc le corriger avant de le transmettre.
 
 ---
 
-## 2. La contrainte qui commande tout : le Raspberry Pi 5
+## 2. Le cadre du projet
 
-| Caractéristique | Conséquence directe |
+### 2.1 Les décisions prises
+
+| Point | Décision |
 |---|---|
-| 4 × Arm Cortex-A76 @ 2,4 GHz | **Pas de GPU ni de NPU** : toute l'inférence est sur CPU |
-| Instructions NEON **dot-product** | L'INT8 est réellement accéléré (**× 2,1** mesuré sur A76) — contrairement au Cortex-A53 du Pi 3, où l'INT8 est **1,76 × plus lent**. Le choix du Pi 5 n'est donc pas neutre |
-| ~7-12 W en charge, throttling sans dissipateur | Le refroidissement fait partie du protocole de mesure |
+| **Terrain d'essai** | Phase 1 sur une **plateforme de test à l'école**, avec des couloirs reconstitués |
+| **Capteur de distance** | **LiDAR 2D** (un laser qui balaie un plan horizontal et mesure les distances) |
+| **Vitesse du robot** | **Réglable** à volonté — le robot est déjà pilotable |
+| **Matériel de calcul** | **Raspberry Pi 5 seul**, sans accélérateur : pas de budget supplémentaire |
+| **Modèle de détection** | **YOLOv8n**, exécuté sur le processeur du Raspberry Pi (§5) |
 
-### Le budget de latence — transformer « temps réel » en un seuil opposable
+### 2.2 La contrainte principale : le Raspberry Pi 5
 
-VA à 1,0 m/s croisant un piéton à 1,4 m/s → rapprochement à 2,4 m/s. Avec une décélération
-confortable de 1 m/s² (charge fragile : prélèvements, médicaments) et 0,5 m de marge, la portée
-de détection utile est d'environ **4 m**. En visant une boucle à 10 Hz, dont ~45 ms sont
-consommés par l'acquisition, le pré-traitement et la fusion :
+Le Raspberry Pi 5 est un ordinateur de la taille d'une carte de crédit. Il n'a **ni carte
+graphique ni puce dédiée à l'IA** : tout le calcul repose sur son processeur à 4 cœurs. C'est
+la contrainte qui oriente tous les choix de ce document.
 
-> ### Budget d'inférence : ≤ 50 ms par image, soutenu, à température stabilisée
-> soit 10 Hz de cadence de perception et 10 cm parcourus par cycle.
+Deux points favorables tout de même :
+- son processeur accélère efficacement les **modèles compressés** (voir §5.4), ce que ne faisaient
+  pas les générations précédentes de Raspberry Pi ;
+- il chauffe sous charge et ralentit alors de lui-même : **un ventilateur est indispensable**,
+  sans quoi les mesures de vitesse perdent toute valeur.
 
-| Latence d'inférence (Pi 5, 4 threads, à chaud) | Verdict |
+### 2.3 Le budget de temps
+
+Pour s'arrêter en douceur devant un piéton qui arrive en face, un robot roulant à 1 m/s doit le
+repérer à **environ 4 mètres**. En visant **10 analyses d'image par seconde** (soit une analyse
+tous les 10 cm parcourus), et une fois retiré le temps de capture et de traitement autour du
+modèle, il reste :
+
+> ### Environ 50 ms par image pour le modèle de détection
+
+### 2.4 La vitesse du robot, notre variable d'ajustement
+
+Puisque la vitesse du robot est réglable, ce budget n'est pas un mur. Si le modèle est plus lent
+que prévu, **on adapte la vitesse** pour conserver la même marge de sécurité — une analyse tous
+les 10 cm environ :
+
+| Cadence obtenue sur le Raspberry Pi | Vitesse maximale conseillée |
 |---|---|
-| ≤ 50 ms | Confortable — marge pour la fusion et le suivi |
-| 50 – 100 ms | Acceptable |
-| 100 – 200 ms | Limite — impose de ralentir le VA ou d'ajouter un accélérateur |
-| > 200 ms | **Éliminatoire** en environnement partagé avec des piétons |
+| 12 images/s | 1,2 m/s |
+| 10 images/s | 1,0 m/s |
+| 8 images/s | 0,8 m/s |
+| 5 images/s | 0,5 m/s |
+
+C'est un vrai atout pour la plateforme de test : le projet reste démontrable quelle que soit la
+vitesse finalement atteinte par le modèle.
 
 ---
 
 ## 3. État des lieux de l'existant
 
-La logistique hospitalière autonome est un marché **mature**, pas un domaine émergent.
+La logistique hospitalière autonome n'est pas un domaine émergent : plusieurs robots sont
+déployés depuis plus de dix ans.
 
-| Système | Capteurs | Calcul | IA de perception | Ascenseur |
-|---|---|---|---|---|
-| **Aethon TUG** (prod. depuis ~2004) | LiDAR + ultrasons + IR, puis caméra de profondeur RealSense | x86 embarqué | SLAM au cœur ; la caméra est arrivée **en dernier**, en complément | Réseau |
-| **Panasonic HOSPI** (prod. depuis ~2013) | Capteurs multiples, multi-hauteurs | Embarqué | Évitement + carte pré-établie. **Certifié ISO 13482** | **Réseau** |
-| **Relay Robotics** | LiDAR + profondeur + ultrasons | Embarqué | Navigation en environnement public encombré | **Réseau** |
-| **Diligent Moxi** | LiDAR + caméras multiples | Embarqué haute perf. | Perception + manipulation + interaction sociale | Réseau |
-| **ORB** — Carnegie Mellon, IEEE CASE 2025 | Multimodaux (base Fetch) | **GPU** | **YOLOv7 + SAM 2 + Grounding DINO**, ROS 2, arbres de comportement | — |
-| **Prototypes Raspberry Pi** (académiques) | Caméra seule le plus souvent | **Raspberry Pi 3/4/5** | YOLOv8 / v10 / v12n seul — **6 à 8 FPS** | — |
+| Système | Capteurs | Calcul | Approche |
+|---|---|---|---|
+| **Aethon TUG** (depuis ~2004) | LiDAR, ultrasons, infrarouge, puis caméra de profondeur | Ordinateur embarqué | Carte du bâtiment + capteurs de distance ; la caméra est arrivée **en dernier**, en complément |
+| **Panasonic HOSPI** (depuis ~2013) | Capteurs de distance multiples | Ordinateur embarqué | Carte pré-établie ; **certifié** selon la norme de sécurité des robots de service |
+| **Relay Robotics** | LiDAR, caméra de profondeur, ultrasons | Ordinateur embarqué | Circulation en espaces publics fréquentés |
+| **Diligent Moxi** | LiDAR, caméras | Ordinateur embarqué puissant | Navigation + saisie d'objets + interaction avec le personnel |
+| **ORB** — Carnegie Mellon, 2025 | Multiples | **Carte graphique** | Trois grands modèles d'IA combinés ; très performant mais très gourmand |
+| **Prototypes sur Raspberry Pi** (universitaires) | Caméra, souvent seule | **Raspberry Pi** | Un modèle YOLO seul — **6 à 8 images/s** |
 
-**Les trois régimes sont nets :** l'industrie résout le problème **en y mettant le matériel
-nécessaire** ; la recherche **en y mettant un GPU** ; les prototypes bas coût s'arrêtent à la
-détection brute, sans structuration ni quantification de l'incertitude.
+**Trois approches se dégagent :** l'industrie résout le problème **avec du matériel puissant** ;
+la recherche **avec des cartes graphiques** ; les prototypes à bas coût s'arrêtent à la détection
+brute, sans organiser l'information ni indiquer leur niveau de confiance.
+
+**Notre positionnement :** produire, sur un matériel à bas coût, une information **structurée et
+fiable** — ce que les prototypes existants ne font pas encore.
 
 ---
 
-## 4. Quatre enseignements, et ce qu'ils imposent
+## 4. Ce que l'on retient de l'existant
 
-| | Enseignement | Ce qu'il impose à notre projet |
+| | Enseignement | Conséquence pour notre projet |
 |---|---|---|
-| **E1** | **La géométrie d'abord, la sémantique ensuite.** Aucun système en production ne fonde sa navigation sur la caméra : tous partent de la télémétrie et ajoutent la vision par-dessus | Le LiDAR 2D fournit la distance métrique et l'espace libre pour un **coût CPU nul**. La profondeur monoculaire apprise (MiDaS, Depth Anything) est **écartée** : elle doublerait le budget d'inférence pour une sortie non métrique |
-| **E2** | **La sécurité des personnes ne passe pas par l'IA.** ISO 3691-4 exige un niveau **PLd** pour la détection de personnes, et IEC 61496 réserve cette fonction aux **ESPE de Type 3 (scanner laser) ou 4**. Une caméra + réseau n'en est pas un : elle ne discrimine pas de façon déterministe | Le **scanner laser certifié** garantit l'arrêt ; l'IA sert à *comprendre* la scène. Notre module est un **démonstrateur de perception, pas un organe de sécurité** — à écrire explicitement. En contrepartie, le **déterminisme de la latence** et l'**honnêteté de la confiance** deviennent des critères de premier rang |
-| **E3** | **Ce qui est connu par le réseau ne doit pas être deviné par un capteur.** HOSPI et Relay obtiennent l'état de l'ascenseur par **requête réseau** — exacte, instantanée, fiable à 100 % | La sortie *d* est mal posée comme problème de vision. **Point à arbitrer (§8)** |
-| **E4** | **Sur Raspberry Pi, 6-8 FPS est le régime naturel** d'un YOLO non optimisé — soit **sous notre cible**. Les revues convergent sur un triptyque : quantification, élagage, architectures légères | L'effort doit porter sur la **chaîne d'exécution**, pas sur l'architecture du modèle (§5) |
+| **1** | **Les capteurs de distance d'abord, la caméra ensuite.** Aucun robot en production ne se repère avec la caméra seule : tous s'appuient sur des capteurs de distance, et la caméra vient compléter | Le **LiDAR 2D** fournit les distances et l'espace libre, sans calcul coûteux. Inutile d'ajouter un second modèle d'IA pour estimer les distances à partir de l'image |
+| **2** | **La sécurité des personnes repose sur un capteur certifié, pas sur l'IA.** Les normes de sécurité des robots mobiles imposent un **scanner laser de sécurité certifié** pour détecter les personnes et déclencher l'arrêt | Notre module est un **démonstrateur de perception**, pas un organe de sécurité. Il n'a pas à être parfait, mais il doit être **régulier** et **honnête** sur sa confiance |
+| **3** | **Ce que le bâtiment sait, on le lui demande.** Les robots du marché interrogent directement l'ascenseur par le réseau pour savoir s'il est disponible | L'information « ascenseur disponible » relève plutôt d'une liaison avec le bâtiment que de la caméra. Sans objet sur la plateforme de test (§8) |
+| **4** | **Sur Raspberry Pi, un modèle YOLO non optimisé tourne à 6-8 images/s**, en dessous de notre cible | L'effort doit porter sur **la manière d'exécuter le modèle** plus que sur le choix du modèle lui-même (§5.4) |
 
 ---
 
@@ -94,149 +122,173 @@ détection brute, sans structuration ni quantification de l'incertitude.
 
 ### 5.1 Les candidats
 
-| Modèle | Type | Params | mAP COCO | Sans NMS | Latence Pi 5 (640 px) | Verdict |
-|---|---|---|---|---|---|---|
-| SSD-MobileNetV2 / EfficientDet-Lite | CNN à ancres | 3-5 M | 22-32 | non | — | **Écarté** : 8 à 17 points de mAP sous un YOLO nano moderne |
-| NanoDet-Plus-m | CNN sans ancres | ~1,2 M | ~27 | non | ~20-30 ms (416, INT8, est.) | **Repli** : le plus frugal (980 Ko en INT8), mais peu maintenu depuis 2022 |
-| YOLOv8n | CNN sans ancres | 3,2 M | 37,3 | non | ~258 ms (NCNN) | Écosystème très mûr |
-| YOLO11n | CNN sans ancres | 2,6 M | 39,5 | non | **~80 ms** (NCNN) | **Repli n° 1** : export NCNN le plus éprouvé |
-| **YOLO26n** (janv. 2026) | CNN sans ancres | **2,4 M** | **40,9** | **oui** | **~67 ms** (NCNN) | **Retenu** |
-| RF-DETR-Nano / D-FINE | Transformeur | — | **meilleure précision** | oui | non documentée | **Écarté pour l'embarqué** : conçus pour GPU, attention mal servie par un CPU ARM. **Réutilisés hors ligne** comme modèle enseignant et auto-annotateur |
+| Modèle | Sortie | Précision* | Vitesse sur Pi 5 | Retours d'expérience sur Raspberry Pi | Verdict |
+|---|---|---|---|---|---|
+| SSD-MobileNet / EfficientDet-Lite | 2018-2020 | 22 à 32 | — | Nombreux | **Écarté** : précision trop faible |
+| NanoDet-Plus | 2021 | ~27 | — | Limités ; projet peu maintenu | **Écarté** |
+| **YOLOv8n** | **janv. 2023** | **37,3** | **~83 ms** (≈ 12 img/s) | **Très nombreux** : documentation officielle, études universitaires, tutoriels | **Retenu** |
+| YOLO11n | sept. 2024 | 39,5 | ~80 ms | Nombreux | Alternative proche |
+| YOLO26n | janv. 2026 | 40,9 | ~67 ms | Encore rares : chiffres surtout issus de l'éditeur | **Piste d'évolution** |
+| RF-DETR / D-FINE | 2024-2025 | Les plus élevées | Non documentée | Quasi inexistants | **Écartés** pour le robot ; utiles hors ligne pour pré-annoter nos images |
 
-*Chiffres issus de la littérature, très dispersés selon la résolution, le nombre de threads et le
-refroidissement. Ils servent à **classer et éliminer**, pas à dimensionner : la mesure interne
-reste à produire (§7).*
+<small>\* Note de précision sur le jeu de données de référence COCO (0 à 100). Vitesses
+mesurées à 640 pixels avec le moteur d'exécution NCNN. Ces chiffres, issus de la littérature,
+servent à comparer les modèles entre eux ; les valeurs réelles seront mesurées sur notre
+Raspberry Pi (§7).</small>
 
-### 5.2 Les deux résultats qui décident
+### 5.2 Pourquoi YOLOv8n
 
-**1. Le format d'export pèse plus lourd que le choix du modèle.** Passer de PyTorch à NCNN sur
-YOLO11n fait passer la latence de ~400 ms à ~80 ms — **un facteur 5**. Aucun changement
-d'architecture du tableau n'offre un tel gain.
+**L'argument principal : la maturité et la documentation.**
 
-| Technique | Gain | Priorité |
+YOLOv8 est utilisé depuis début 2023, soit plus de trois ans et demi. Sur Raspberry Pi 5 en
+particulier, il a fait l'objet de **nombreuses évaluations indépendantes** — articles
+universitaires, bancs d'essai publiés, guides de déploiement pas à pas. YOLO26, sorti en
+janvier 2026, n'a que quelques mois : les chiffres disponibles sur Raspberry Pi proviennent
+encore essentiellement de l'éditeur lui-même.
+
+Pour un projet de durée limitée, cette différence pèse lourd :
+
+- **Moins de risque.** Chaque difficulté que nous rencontrerons (installation, conversion du
+  modèle, réglages) a très probablement déjà été rencontrée et résolue par d'autres. Avec un
+  modèle récent, nous serions parmi les premiers à les affronter.
+- **Des résultats comparables.** Les performances de YOLOv8 sur Raspberry Pi sont déjà publiées :
+  nous pourrons situer nos propres mesures par rapport à des références connues.
+
+**L'écart de performance est faible, et en partie rattrapable.** YOLO26n est un peu plus précis
+(+3,6 points) et un peu plus rapide, mais :
+- la vitesse reste du même ordre (~83 ms contre ~67 ms) ;
+- cette précision est mesurée sur des objets du quotidien (COCO). Nous allons de toute façon
+  **ré-entraîner le modèle sur nos propres images** et nos propres classes d'objets : c'est sur
+  nos couloirs que l'écart comptera, et il reste à mesurer.
+
+**Aucune porte n'est fermée.** YOLOv8, YOLO11 et YOLO26 s'utilisent avec la même bibliothèque
+(Ultralytics), avec les mêmes commandes d'entraînement et de conversion. Passer plus tard à un
+modèle plus récent ne demandera que de **changer le nom du modèle dans le code** : tout le reste
+du travail (données, entraînement, intégration) sera réutilisable.
+
+### 5.3 Ce que l'on accepte en choisissant YOLOv8n
+
+Un détecteur propose plusieurs boîtes pour un même objet ; une étape de tri garde ensuite la
+meilleure. Sur YOLOv8, ce tri prend un peu plus de temps quand la scène contient beaucoup
+d'objets — le temps de calcul varie donc légèrement selon l'encombrement. YOLO26 a supprimé
+cette étape.
+
+C'est une **limite connue et maîtrisable** : on plafonne le nombre d'objets traités par image,
+et on vérifie par la mesure que le temps de calcul reste acceptable **dans les scènes les plus
+chargées**, pas seulement en moyenne.
+
+### 5.4 Le levier principal : la manière d'exécuter le modèle
+
+Le même modèle peut tourner avec différents **moteurs d'exécution** (les logiciels qui font
+tourner le modèle). C'est le choix qui a le plus d'impact :
+
+| Optimisation | Gain | Principe |
 |---|---|---|
-| Export **NCNN** (runtime ARM de Tencent) | **× 3 à × 5** | 1 |
-| Résolution 640 → **416** | **× 2,4** | 2 |
-| Quantification **INT8** (dot-product du A76) | **× 2,1** | 3 |
-| **Cumul estimé** | **≈ × 15**, soit ~400 ms → **25-30 ms** | — |
+| Moteur **NCNN** au lieu de PyTorch | **× 3 à × 5** | Moteur conçu pour les processeurs de téléphones et de Raspberry Pi. PyTorch sert à entraîner, pas à exécuter rapidement |
+| Image réduite de 640 à **416 pixels** | **× 2** à **× 2,4** | Moins de pixels à analyser. Dans un couloir, les obstacles sont proches, donc grands dans l'image : la perte devrait être faible (à vérifier, §7) |
+| Modèle **compressé** (nombres sur 8 bits au lieu de 32) | **× 2** | Calculs plus légers, bien pris en charge par le processeur du Pi 5 |
 
-**2. YOLO26n est préféré pour une raison qualitative, pas pour son mAP.** Son avantage de
-+1,4 point sur YOLO11n est secondaire face au facteur 5 ci-dessus. Ce qui le départage, c'est
-l'architecture **sans NMS** : le coût du *Non-Maximum Suppression* dépend du nombre de détections
-dans l'image — rapide dans un couloir vide, lent dans un hall bondé, c'est-à-dire **au pire
-moment**. Sans NMS, la latence est déterministe. C'est exactement ce qu'exige l'enseignement E2.
+**Objectif :** passer des ~83 ms actuels à **25-40 ms par image**, donc dans le budget de 50 ms.
+Ces gains ne s'additionnent jamais parfaitement : ils seront mesurés un par un.
 
 ---
 
 ## 6. Le choix retenu
 
-### Principe directeur : un seul réseau de neurones dans la boucle
+### Principe : un seul modèle d'IA dans la boucle
 
-Toutes les autres fonctions — distance, suivi, état, confiance — sont assurées par des méthodes
-géométriques ou statistiques à coût quasi nul, exploitant des capteurs déjà présents au cahier
-des charges. C'est ce qui permet de tenir simultanément les trois familles de critères
-(performance, frugalité, embarqué), là où un empilement de réseaux spécialisés saturerait le CPU.
+Le modèle de détection est le seul élément coûteux en calcul. Toutes les autres fonctions —
+distance, suivi, état du couloir, confiance — sont assurées par des calculs simples, en tirant
+parti des capteurs déjà présents sur le robot. C'est ce qui permet de tenir à la fois les
+exigences de performance, de frugalité et d'embarqué du sujet.
 
 ```
-   Caméra 30 Hz
+   Caméra
         │
         ▼
-   YOLO26n  (NCNN INT8, 416×416)              ◄── le seul réseau de neurones
-   boîtes + classes + scores bruts
+   YOLOv8n  (NCNN, image 416 px)              ◄── le seul modèle d'IA
+   objets détectés + scores
         │
         ▼
-   ByteTrack                                  ◄── IMU / odométrie 50 Hz
-   pistes, vitesses, âge                          (ego-motion)
+   Suivi des objets (ByteTrack)               ◄── centrale inertielle + odométrie
+   identité, vitesse, ancienneté                  (mouvement du robot)
         │
         ▼
-   Fusion par secteur angulaire               ◄── LiDAR 2D 10 Hz
-   boîte × balayage LiDAR → distance              (distance, espace libre)
-        │                                     ◄── Sonar 10 Hz
-        │                                         (verre, sas)
+   Association boîte / LiDAR                  ◄── LiDAR 2D
+   distance de chaque objet                       (distances, espace libre)
+        │                                     ◄── Sonar
+        │                                         (surfaces vitrées)
         ▼
-   Calibration + confiance multi-source
+   Recalage des scores de confiance
         │
         ▼
-   Logique d'état  →  sortie structurée @ 10 Hz  →  IA de décision
-   couloir · ascenseur · trajectoire                (hors périmètre)
+   États (couloir, trajectoire)  →  information structurée, 10 fois/s  →  IA de décision
 ```
 
-| Brique | Choix | Argument décisif |
+| Fonction | Solution | Pourquoi |
 |---|---|---|
-| **Détection** | **YOLO26n**, NCNN INT8, 416×416 | Meilleur score multicritère (4,10/5) ; **latence déterministe** (sans NMS) |
-| **Distance** | **Fusion caméra / LiDAR 2D** par secteur angulaire | Métrique, ~6 cm d'erreur rapportés, **coût CPU nul** |
-| **Espace libre** | **Occupation LiDAR 2D** | Un obstacle de classe inconnue devient « une zone qui n'est pas du sol » — filet de sécurité par construction, sans second réseau ni annotation pixel |
-| **Verre et sas** | **Sonar** | Seul capteur voyant les surfaces vitrées, invisibles au LiDAR **et** à la caméra |
-| **Suivi** | **ByteTrack + ego-motion IMU** | Coût nul ; conserve les détections à faible score → **gain de rappel sur « personne »**. L'IMU remplace gratuitement la compensation visuelle de BoT-SORT |
-| **Confiance** | **Temperature scaling** + agrégation temporelle + accord inter-capteurs | Coût d'inférence **nul** ; répond à la sortie *f*. MC-Dropout et ensembles écartés (coût × N passes) |
-| **Matériel** | **CPU nu** ; AI Kit Hailo-8L documenté en repli mesuré | La frugalité est un critère d'évaluation du sujet — y répondre avec un accélérateur à 70 € serait répondre à côté |
+| **Détection** | **YOLOv8n** sur le processeur du Pi 5 | Maturité, documentation, retours d'expérience (§5.2) |
+| **Distance** | **Association caméra / LiDAR 2D** : pour chaque objet détecté, on lit la distance mesurée par le LiDAR dans la même direction | Distance en mètres, précise, sans calcul coûteux |
+| **Espace libre** | **LiDAR 2D** | Même un objet que le modèle ne connaît pas est vu comme « pas du sol » : un filet de sécurité naturel |
+| **Surfaces vitrées** | **Sonar** | Le verre est invisible pour le LiDAR comme pour la caméra ; le son, lui, rebondit dessus |
+| **Suivi** | **ByteTrack**, un algorithme de suivi léger, aidé par la centrale inertielle du robot | Donne une identité et une vitesse à chaque objet. Il conserve les détections incertaines (personne à moitié cachée), ce qui aide à ne rater personne |
+| **Confiance** | **Recalage des scores** sur un jeu d'images de contrôle, combiné à la durée de suivi et à la confirmation par le LiDAR | Rend le score honnête, sans alourdir le calcul |
 
 ---
 
-## 7. Ce qui reste à prouver
+## 7. Plan de validation — phase 1 sur la plateforme de l'école
 
-L'état de l'art **oriente**, il ne prouve pas. Trois travaux à mener avant de figer le choix.
+L'état de l'art oriente les choix ; c'est la mesure qui les confirmera. Quatre étapes :
 
-**① L'expérience prioritaire — courbe résolution / rappel.** À mener **avant tout entraînement
-long** : tracer le rappel sur la classe « personne » en fonction de la résolution d'entrée
-(640 / 512 / 416 / 320), croisé avec la distance.
+**① Première mesure.** Installer YOLOv8n tel quel sur le Raspberry Pi 5 et mesurer sa vitesse
+réelle, avec ventilateur et après une période de chauffe. C'est notre point de départ.
 
-- L'hypothèse à tester : en couloir hospitalier (2-3 m de large), les obstacles pertinents sont
-  **proches donc grands dans l'image**. La pénalité de la réduction de résolution devrait y être
-  bien plus faible que sur COCO, dont la métrique est dominée par les petits objets.
-- Si le rappel tient à 416, **la faisabilité sur CPU nu est acquise**. Sinon, il faut arbitrer
-  entre ralentir le VA, accepter 5-7 Hz, ou basculer sur le Hailo-8L. **Le savoir en semaine 4
-  plutôt qu'en semaine 20 est la meilleure réduction de risque du projet.**
+**② L'expérience prioritaire : taille d'image et détection des personnes.** Sur les couloirs de
+la plateforme, mesurer la proportion de personnes correctement détectées selon la taille de
+l'image (640, 416, 320 pixels) et la distance. Si la détection reste bonne à 416 pixels, la
+faisabilité sur le Raspberry Pi seul est acquise. Sinon, on ajuste la vitesse du robot (§2.4).
+**Le savoir tôt est la meilleure façon de réduire le risque du projet.**
 
-**② Le banc de mesure sur Pi 5.** 3 modèles × 4 formats × 3 résolutions. Conditions imposées :
-10 min de chauffe, dissipateur actif, 1 000 images, report de la **médiane et du p95** (pas de la
-seule moyenne), relevé de température, de throttling et de consommation. Aucun des travaux
-Raspberry Pi recensés ne publie ces éléments — c'est un espace de contribution réel.
+**③ Nos données.** Photographier les couloirs de la plateforme de jour comme en éclairage
+réduit, avec des objets représentatifs du milieu hospitalier (chariots, fauteuils, obstacles au
+sol), avec l'accord des personnes filmées. Un modèle plus gros peut pré-annoter les images sur
+ordinateur ; il ne reste qu'à les corriger.
 
-**③ Le jeu de données.** Collecte en couloirs, halls d'ascenseur et sas, de jour **et de nuit**,
-avec floutage des visages à la source (RGPD, secret médical). Classes absentes de COCO à annoter :
-brancard, chariot de soins, pied à perfusion, porte d'ascenseur, personne au sol.
-Pré-annotation par RF-DETR ou D-FINE **hors ligne**, puis correction manuelle.
+**④ Entraînement et optimisation.** Ré-entraîner YOLOv8n sur ces images, appliquer les
+optimisations du §5.4, puis mesurer à nouveau.
 
 ### Critères de réussite proposés
 
-| Critère | Seuil |
+| Critère | Objectif |
 |---|---|
-| Rappel classe « personne » @ IoU 0,5 | ≥ 95 % |
-| mAP@0,5 toutes classes | ≥ 60 % |
-| Latence médiane / p95 sur Pi 5 | ≤ 50 ms / ≤ 100 ms |
-| Taille du modèle déployé | ≤ 15 Mo |
-| Puissance système | ≤ 8 W moyens |
-| Calibration de la confiance (ECE) | ≤ 0,05 |
+| Personnes détectées parmi celles présentes | ≥ 95 % |
+| Précision globale sur nos classes d'objets | ≥ 60 % |
+| Temps de calcul par image (cas courant / scènes chargées) | ≤ 50 ms / ≤ 100 ms |
+| Taille du modèle | ≤ 15 Mo |
+| Consommation électrique du Raspberry Pi | ≤ 8 W |
+| Écart entre confiance annoncée et confiance réelle | ≤ 5 % |
 
 ---
 
-## 8. Points à arbitrer — questions pour la réunion
+## 8. Points encore ouverts
 
-1. **Périmètre capteurs.** Le GPS est inopérant en intérieur ; le RFID et le BIR relèvent de la
-   localisation symbolique, pas de la perception géométrique. Les traite-t-on, ou sont-ils hors
-   périmètre ?
-2. **Vitesse nominale du VA.** Elle conditionne tout le budget de latence du §2.
-3. **LiDAR disponible : 2D ou 3D ?** L'écart de complexité entre les deux est d'un ordre de grandeur.
-4. **L'AI Kit (Hailo-8L) est-il autorisé au budget**, ou la démonstration doit-elle rester sur
-   CPU nu ? Cela change la réponse de l'état de l'art.
-5. **Accès terrain** pour la collecte du jeu de données, et cadre RGPD associé.
-6. **Ascenseur : interface réseau accessible ?** (cf. E3) Sinon, la sortie *d* se dégrade en une
-   estimation visuelle nettement moins fiable.
+1. **Ascenseur.** Sans objet sur la plateforme de test. Pour une phase ultérieure en milieu
+   réel : l'information peut-elle être obtenue par une liaison avec l'ascenseur, ou faut-il
+   l'estimer par la caméra ?
+2. **GPS et RFID.** Le GPS ne fonctionne pas en intérieur, et le RFID indique un lieu plutôt
+   qu'un obstacle. Sont-ils dans le périmètre de la perception ?
+3. **Suite de la plateforme de test.** Un passage en milieu hospitalier réel est-il envisagé
+   après la phase 1 ?
 
-> **Point de licence à signaler.** YOLO26 et YOLO11 sont sous **AGPL-3.0** : compatible avec un
-> PRI académique publié en dépôt ouvert, mais bloquant en cas de valorisation industrielle
-> fermée. Dans ce cas, **RF-DETR, D-FINE et NanoDet (Apache 2.0)** deviendraient structurellement
-> préférables. Ce n'est pas un détail : c'est un critère de choix à part entière.
+> **À noter sur la licence.** Les modèles Ultralytics, dont YOLOv8, sont diffusés sous licence
+> **AGPL-3.0** : aucune contrainte pour un projet académique publié en accès libre, mais une
+> licence commerciale serait nécessaire en cas d'exploitation industrielle fermée.
 
 ---
 
 ## Sources principales
 
-Bibliographie complète (une cinquantaine de références) dans le rapport détaillé.
-
-- **Systèmes en production** — [Aethon TUG / Intel RealSense](https://www.intelrealsense.com/autonomous-mobile-robotics/) · [Panasonic HOSPI, certification ISO 13482](https://news.panasonic.com/global/topics/5001) · [Relay Robotics, intégration ascenseur](https://www.therobotreport.com/relay2-delivery-robot-offers-2x-payload-new-elevator-integration/) · [Diligent Moxi](https://www.diligentrobots.com/moxi)
-- **Recherche** — [ORB: Operating Room Bot (arXiv 2509.15600, IEEE CASE 2025)](https://arxiv.org/html/2509.15600) · [Edge AI in Practice: Survey and Deployment Framework (MDPI Electronics)](https://www.mdpi.com/2079-9292/14/24/4877)
-- **Modèles** — [Ultralytics YOLO26](https://docs.ultralytics.com/models/yolo26) · [YOLO26: NMS-Free End-to-End Framework (arXiv 2601.12882)](https://arxiv.org/pdf/2601.12882) · [RF-DETR (arXiv 2511.09554)](https://arxiv.org/pdf/2511.09554) · [ByteTrack / BoT-SORT — comparatif MOT](https://trackers.roboflow.com/latest/trackers/comparison/)
-- **Embarqué** — [Is INT8 Portable? Cross-Platform Study (arXiv 2609.16085)](https://arxiv.org/html/2609.16085) · [YOLO on Raspberry Pi — benchmarks](https://docs.ultralytics.com/guides/raspberry-pi)
-- **Normes et briques** — [ISO 3691-4:2020](https://www.iso.org/standard/70660.html) · [Scanners laser de sécurité : IEC 61496 Type 3/4 et PLd](https://industrialmonitordirect.com/blogs/knowledgebase/safety-laser-scanners-for-personnel-presence-detection) · [AMLAS — assurance du ML en systèmes autonomes (arXiv 2102.01564)](https://arxiv.org/pdf/2102.01564) · [Nav2 — Costmap 2D](https://navigation.ros.org/configuration/packages/configuring-costmaps.html)
+- **Systèmes existants** — [Aethon TUG / Intel RealSense](https://www.intelrealsense.com/autonomous-mobile-robotics/) · [Panasonic HOSPI, certification ISO 13482](https://news.panasonic.com/global/topics/5001) · [Relay Robotics, intégration ascenseur](https://www.therobotreport.com/relay2-delivery-robot-offers-2x-payload-new-elevator-integration/) · [Diligent Moxi](https://www.diligentrobots.com/moxi) · [ORB: Operating Room Bot (arXiv 2509.15600)](https://arxiv.org/html/2509.15600)
+- **YOLOv8 sur Raspberry Pi** — [Edge AI Engineering : YOLO sur Raspberry Pi](https://mjrovai.github.io/EdgeML_Made_Ease_ebook/raspi/object_detection/cv_yolo.html) · [Benchmarking Deep Learning Models for Object Detection on Edge Devices (arXiv 2409.16808)](https://arxiv.org/html/2409.16808v1) · [Quantized YOLOv11 and YOLOv8 on Raspberry Pi 5 (Research Square)](https://www.researchsquare.com/article/rs-8584571/v1) · [YOLOv8 et RT-DETR : efficacité énergétique en périphérie (Scientific Reports)](https://www.nature.com/articles/s41598-026-46453-6) · [YOLO sur Raspberry Pi — guide Ultralytics](https://docs.ultralytics.com/guides/raspberry-pi)
+- **Modèles comparés** — [Ultralytics YOLO26](https://docs.ultralytics.com/models/yolo26) · [RF-DETR (arXiv 2511.09554)](https://arxiv.org/pdf/2511.09554) · [ByteTrack et autres algorithmes de suivi — comparatif](https://trackers.roboflow.com/latest/trackers/comparison/)
+- **Sécurité** — [ISO 3691-4:2020](https://www.iso.org/standard/70660.html) · [Scanners laser de sécurité pour la détection de personnes](https://industrialmonitordirect.com/blogs/knowledgebase/safety-laser-scanners-for-personnel-presence-detection)
