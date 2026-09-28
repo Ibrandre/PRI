@@ -27,6 +27,7 @@ Deux documents sont générés à partir des Markdown de `docs/` :
 | Fichier | Profil | Pages | Usage |
 |---|---|---|---|
 | [`build/PRI_IA_Perception_Synthese.pdf`](build/PRI_IA_Perception_Synthese.pdf) | `synthese` | 6 | Présentation à l'encadrant, réunion de suivi |
+| [`build/PRI_IA_Perception_Synthese.docx`](build/PRI_IA_Perception_Synthese.docx) | Word | 7 | Même note, modifiable dans Word |
 | [`build/PRI_IA_Perception_Rapport.pdf`](build/PRI_IA_Perception_Rapport.pdf) | `rapport` | 39 | Dossier complet, annexe du rapport final |
 
 ```bash
@@ -37,6 +38,16 @@ python3 tools/build_pdf.py --profile synthese  # la note seule
 
 Le rendu passe par Chromium. Si le binaire n'est pas à l'emplacement par défaut,
 le préciser avec `CHROMIUM_PATH=/chemin/vers/chrome`.
+
+La version Word de la note est générée séparément, avec Node.js :
+
+```bash
+(cd tools && npm install)                      # une seule fois
+node tools/build_docx.js                       # -> build/PRI_IA_Perception_Synthese.docx
+```
+
+Attention : le fichier Word est **régénéré** à partir de `docs/03-synthese.md`. Si vous
+le modifiez à la main dans Word, faites une copie avant de relancer le script.
 
 ## Feuille de route (livrables restants)
 

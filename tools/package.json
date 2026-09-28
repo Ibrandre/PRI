@@ -1,0 +1,8 @@
+{
+  "name": "pri-outils-documents",
+  "private": true,
+  "description": "Génération des documents Word du PRI à partir des sources Markdown",
+  "dependencies": {
+    "docx": "^9.8.0"
+  }
+}
